@@ -1,0 +1,3 @@
+[submodule "Ixian-Core"]
+	path = Ixian-Core
+	url = https://github.com/ixian-platform/Ixian-Core.git
