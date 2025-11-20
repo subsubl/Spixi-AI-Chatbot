@@ -1,32 +1,54 @@
 # Decentralized AI Chatbot (Ixian + Local LLM)
+# QuIXI + Ixian Workspace — README
 
-This workspace contains a minimal scaffold to build a decentralized AI chatbot using QuIXI (Ixian gateway), a local LLM runner (LM Studio or Ollama), and an MQTT broker for internal message routing.
+This repository contains the QuIXI application (QuIXI/) and the Ixian-Core libraries (Ixian-Core/), plus example scaffolding for a decentralized AI chatbot that integrates QuIXI with a local LLM and MQTT for message routing.
 
-Files added:
-- `ai_chatbot.py` — minimal scaffold that checks connectivity to LM Studio and QuIXI.
-- `requirements.txt` — Python dependencies for the example.
+This README is a concise GitHub-facing entry explaining how to build, run, and develop with this workspace. A more detailed developer guide is in `GUIDE.md`.
 
-Quick start (Windows PowerShell):
+Highlights
+- QuIXI: node, API server, CLI — entry point: `QuIXI/QuIXI/Program.cs`.
+- Ixian-Core: shared crypto, networking, storage, and streaming primitives.
+- Example chatbot scaffold: `ai_chatbot.py` (connects to LM Studio and QuIXI), `requirements.txt`.
+- Minimal web GUI served at `/gui` (files in `html/gui/`).
+
+Quick start (Windows PowerShell)
+
+1) Build QuIXI (Visual Studio recommended) or use dotnet/msbuild from shell:
 
 ```powershell
-# 1) Create a Python virtual environment (optional)
+msbuild .\QuIXI\QuIXI.sln /p:Configuration=Debug
+# or
+dotnet build .\QuIXI\QuIXI.sln
+```
+
+2) Run the QuIXI executable (adjust the path/TFM):
+
+```powershell
+& .\QuIXI\QuIXI\bin\Debug\net8.0\QuIXI.exe --config ixian.cfg --apiport 8001
+```
+
+3) Open the GUI in your browser (served by the same API server):
+
+	http://localhost:8001/gui
+
+4) (Optional) Start the example chatbot scaffolding:
+
+```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-
-# 2) Install required packages
 python -m pip install -r requirements.txt
-
-# 3) Start LM Studio and download a model; enable Local Server (note the base URL)
-# 4) Build/run QuIXI and configure ixian.cfg to bind APIs to localhost
-# 5) Start an MQTT broker (mosquitto) or another broker accessible at localhost:1883
-
-# 6) Run the scaffold (it performs connectivity checks and exits if services are missing)
 python ai_chatbot.py
 ```
 
-Next steps:
-- Extend `ai_chatbot.py` to subscribe to MQTT `Chat/#` and `RequestAdd2/#` topics.
-- Implement message handling, local LLM calls (OpenAI-compatible client pointing to LM Studio), and `sendChatMessage` requests to the QuIXI API.
-- Add persistent memory (SQLite), RAG embedding support, and systemd/service files for production.
+Security & notes
+- The workspace contains wallet files (`ixian.wal` and backups). Do NOT push wallet files or secrets to public repositories. Add them to `.gitignore` before committing.
+- `Ixian-Core/` and `QuIXI/` are separate repositories in many setups; treating them as submodules is recommended if you want to track them as dependencies.
+- The GUI is lightweight and calls the API via JSON-RPC POSTs to `/` (methods: `contacts`, `addContact`, `sendChatMessage`, `getLastMessages`, `status`). If your API uses authentication, the GUI must be updated to send auth headers.
 
-See the Ixian docs guide: https://ixian-platform.github.io/Ixian-Docs/docs/developers/howto/decentralized-ai-chatbot
+Where to look next
+- Entry point: search `static void Main` → `QuIXI/QuIXI/Program.cs`.
+- Node orchestration: `QuIXI/QuIXI/Meta/Node.cs`.
+- CLI & config: `QuIXI/QuIXI/Meta/Config.cs` (`Config.outputHelp()` shows flags).
+- API endpoints: `QuIXI/QuIXI/API/APIServer.cs` and `Ixian-Core/API/GenericAPIServer.cs` (I added `/gui` support to serve `html/gui/`).
+
+For detailed developer instructions (build, run, test, security hardening, .gitignore suggestions, and contribution rules) see `GUIDE.md`.
