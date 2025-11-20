@@ -1,0 +1,31 @@
+# Ignore wallet and backups
+ixian.wal
+*.wal
+*.wal.*
+*.bak
+
+# Runtime and build artifacts
+headers/
+__pycache__/
+*.pyc
+bin/
+obj/
+
+# Python environment
+.venv/
+venv/
+env/
+
+# Editor or OS files
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Logs
+*.log
+
+# Node / npm (if any)
+node_modules/
+
+# Ignore GUI build artifacts
+html/Avatars/
