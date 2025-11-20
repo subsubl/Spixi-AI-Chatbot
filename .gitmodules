@@ -1,3 +1,6 @@
 [submodule "Ixian-Core"]
 	path = Ixian-Core
 	url = https://github.com/ixian-platform/Ixian-Core.git
+[submodule "QuIXI"]
+	path = QuIXI
+	url = https://github.com/ixian-platform/QuIXI.git
