@@ -6,6 +6,14 @@ ixian.wal
 
 # Runtime and build artifacts
 headers/
+# Ignore wallet and backups
+ixian.wal
+*.wal
+*.wal.*
+*.bak
+
+# Runtime and build artifacts
+headers/
 __pycache__/
 *.pyc
 bin/
@@ -29,3 +37,6 @@ node_modules/
 
 # Ignore GUI build artifacts
 html/Avatars/
+
+# Local backup folders created during repo conversion
+*local-backup/
