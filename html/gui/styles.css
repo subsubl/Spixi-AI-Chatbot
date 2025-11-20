@@ -1,0 +1,20 @@
+*{box-sizing:border-box;font-family:Segoe UI, Roboto, Arial, sans-serif}
+body{margin:0;color:#222;background:#f7f7f9}
+header{background:#24292e;color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center}
+header h1{margin:0;font-size:18px}
+#status{font-size:12px;opacity:.9}
+main{display:flex;gap:16px;padding:16px}
+section{background:#fff;border:1px solid #e1e4e8;padding:12px;border-radius:6px;flex:1}
+#contacts{max-width:360px}
+.form-row{display:flex;gap:8px;margin-top:8px}
+.form-row input{flex:1;padding:8px;border:1px solid #d1d5da;border-radius:4px}
+button{background:#0366d6;border:none;color:#fff;padding:8px 12px;border-radius:4px;cursor:pointer}
+button[disabled]{opacity:.6;cursor:default}
+#contacts-list{max-height:300px;overflow:auto}
+.contact{padding:8px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center}
+.contact .meta{font-size:12px;color:#444}
+#last-messages{max-height:240px;overflow:auto;background:#fafbfc;padding:8px;border-radius:4px;margin-bottom:8px}
+.message{padding:6px;border-bottom:1px dashed #eee}
+#node-info{background:#0f1720;color:#cfe9ff;padding:8px;border-radius:4px}
+footer{padding:8px;text-align:center;color:#666;font-size:12px}
+@media(max-width:900px){main{flex-direction:column}}

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>QuIXI GUI</title>
+  <link rel="stylesheet" href="/gui/styles.css" />
+</head>
+<body>
+  <header>
+    <h1>QuIXI — GUI</h1>
+    <div id="status">Connecting...</div>
+  </header>
+
+  <main>
+    <section id="contacts">
+      <h2>Contacts</h2>
+      <div id="contacts-list"></div>
+      <div class="form-row">
+        <input id="new-address" placeholder="Ixian address (base58)" />
+        <input id="new-name" placeholder="Display name (optional)" />
+        <button id="add-contact">Add Contact</button>
+      </div>
+    </section>
+
+    <section id="chat">
+      <h2>Chat</h2>
+      <div id="chat-controls">
+        <select id="chat-recipient"></select>
+        <input id="chat-channel" placeholder="channel (0)" />
+      </div>
+      <div id="last-messages"></div>
+      <div class="form-row">
+        <input id="chat-message" placeholder="Type a message..." />
+        <button id="send-message">Send</button>
+      </div>
+    </section>
+
+    <section id="settings">
+      <h2>Node</h2>
+      <pre id="node-info">-</pre>
+      <button id="refresh-status">Refresh</button>
+    </section>
+  </main>
+
+  <footer>
+    <small>QuIXI GUI — simple management UI</small>
+  </footer>
+
+  <script src="/gui/main.js"></script>
+</body>
+</html>
