@@ -1,0 +1,9 @@
+requests
+openai
+paho-mqtt
+python-dotenv
+# QR rendering (optional, segno recommended)
+segno
+# Optional (for RAG):
+sentence-transformers
+numpy
