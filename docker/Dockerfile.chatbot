@@ -8,3 +8,7 @@ COPY examples/ai_chatbot/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 CMD ["python", "ai_chatbot.py"]
+
+# Healthcheck: ensure QuIXI API responds to status RPC
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+	CMD curl -fsS -X POST http://localhost:8001/ -H 'Content-Type: application/json' -d '{"method":"status","params":{}}' || exit 1

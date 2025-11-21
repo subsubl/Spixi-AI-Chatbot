@@ -17,4 +17,14 @@ button[disabled]{opacity:.6;cursor:default}
 .message{padding:6px;border-bottom:1px dashed #eee}
 #node-info{background:#0f1720;color:#cfe9ff;padding:8px;border-radius:4px}
 footer{padding:8px;text-align:center;color:#666;font-size:12px}
+/* Commands section styles */
+.button-grid{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}
+.button-grid button{background:#2d9cdb;padding:6px 10px;border-radius:4px;font-size:13px}
+.monospace{font-family:Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;background:#0f1720;color:#cfe9ff;padding:8px;border-radius:4px;max-height:240px;overflow:auto}
+textarea#curl-editor{width:100%;padding:8px;border:1px solid #d1d5da;border-radius:4px;font-family:Menlo,Monaco,monospace}
+.form-row button{min-width:90px}
+/* simple modal */
+.modal{position:fixed;left:0;top:0;width:100%;height:100%;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,0.4)}
+.modal[aria-hidden="false"]{display:flex}
+.modal .modal-content{background:#fff;border-radius:6px;padding:12px;min-width:320px}
 @media(max-width:900px){main{flex-direction:column}}

@@ -40,6 +40,9 @@ and knowledgeable. You can discuss technology, answer questions, and have conver
 
 # Initialize OpenAI client pointing to local LM Studio
 client = OpenAI(base_url=LM_STUDIO_API, api_key=os.getenv("LM_API_KEY", "not-needed"))
+    # Concurrency control for LLM calls
+    LM_MAX_CONCURRENT = int(os.getenv("LM_MAX_CONCURRENT", "2"))
+    llm_semaphore = threading.Semaphore(LM_MAX_CONCURRENT)
 
 # Conversation memory (address -> message history) with lock for thread safety
 conversation_history = {}
@@ -77,22 +80,41 @@ def get_ai_response(user_address, user_message):
                 conversation_history[user_address][0]
             ] + conversation_history[user_address][-20:]
     
+    # Call local LLM with concurrency guard and simple retry/backoff
+    attempts = int(os.getenv("LM_CALL_RETRIES", "3"))
+    backoff = float(os.getenv("LM_CALL_BACKOFF", "0.5"))
+    acquired = llm_semaphore.acquire(timeout=int(os.getenv("LM_SEMAPHORE_TIMEOUT", "30")))
+    if not acquired:
+        logger.warning("LLM semaphore timeout; rejecting request for %s", user_address)
+        return "Sorry, the model is busy. Please try again shortly."
     try:
-        # Call local LLM
-        completion = client.chat.completions.create(
-            model=os.getenv("LM_MODEL", "local-model"),
-            messages=conversation_history[user_address],
-            temperature=float(os.getenv("LM_TEMPERATURE", "0.7")),
-            max_tokens=int(os.getenv("LM_MAX_TOKENS", "500"))
-        )
-        ai_response = completion.choices[0].message.content
-        # Add AI response to history (thread-safe)
-        with history_lock:
-            conversation_history[user_address].append({
-                "role": "assistant",
-                "content": ai_response
-            })
-        return ai_response
+        last_err = None
+        for i in range(attempts):
+            try:
+                completion = client.chat.completions.create(
+                    model=os.getenv("LM_MODEL", "local-model"),
+                    messages=conversation_history[user_address],
+                    temperature=float(os.getenv("LM_TEMPERATURE", "0.7")),
+                    max_tokens=int(os.getenv("LM_MAX_TOKENS", "500"))
+                )
+                ai_response = completion.choices[0].message.content
+                with history_lock:
+                    conversation_history[user_address].append({
+                        "role": "assistant",
+                        "content": ai_response
+                    })
+                return ai_response
+            except Exception as e:
+                last_err = e
+                logger.warning("LLM call failed (attempt %d/%d): %s", i+1, attempts, e)
+                time.sleep(backoff * (2 ** i))
+        logger.error("LLM calls failed after %d attempts: %s", attempts, last_err)
+        return "Sorry, I'm temporarily unable to process that. Please try again later."
+    finally:
+        try:
+            llm_semaphore.release()
+        except Exception:
+            pass
     
     except Exception as e:
         print(f"Error getting AI response: {e}")
@@ -182,15 +204,19 @@ def on_message(mqtt_client, userdata, msg):
             elif isinstance(data.get("sender"), str):
                 sender = data.get("sender")
 
-            if sender:
-                logger.info("Auto-accepting contact: %s", sender)
-                try:
-                    resp = session.get(f"{QUIXI_API}/acceptContact", params={"address": sender}, timeout=REQUEST_TIMEOUT)
-                    logger.info("Accept response: %s", resp.status_code)
-                except Exception:
-                    logger.exception("Error calling acceptContact for %s", sender)
-                time.sleep(1)  # Wait for contact to be added
-                send_message(sender, "👋 Hi! I'm your local AI assistant. Ask me anything!\n\nI run on your hardware with full privacy. Type /help for commands.")
+                if sender:
+                    auto_accept = os.getenv('AUTO_ACCEPT_CONTACTS', 'true').lower() in ('1','true','yes')
+                    logger.info("Received contact request from %s (auto_accept=%s)", sender, auto_accept)
+                    if auto_accept:
+                        try:
+                            resp = session.get(f"{QUIXI_API}/acceptContact", params={"address": sender}, timeout=REQUEST_TIMEOUT)
+                            logger.info("Accept response: %s", resp.status_code)
+                        except Exception:
+                            logger.exception("Error calling acceptContact for %s", sender)
+                        time.sleep(1)  # Wait for contact to be added
+                        send_message(sender, "👋 Hi! I'm your local AI assistant. Ask me anything!\n\nI run on your hardware with full privacy. Type /help for commands.")
+                    else:
+                        logger.info("Auto-accept disabled; contact %s will not be added automatically", sender)
 
         # Handle chat messages
         elif root_topic == "Chat":

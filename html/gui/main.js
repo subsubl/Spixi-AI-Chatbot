@@ -133,3 +133,109 @@ window.addEventListener('load', async () => {
   // poll presence messages
   setInterval(refreshStatus, 15000);
 });
+
+// -- curl command helper UI --
+function initCurlCommands(){
+  const cmds = [
+    {label:'status', cmd:`curl -X POST http://localhost:8001/ -H 'Content-Type: application/json' -d '{"method":"status","params":{}}'`} ,
+    {label:'contacts', cmd:`curl -X POST http://localhost:8001/ -H 'Content-Type: application/json' -d '{"method":"contacts","params":{}}'`} ,
+    {label:'addContact', cmd:`curl -X POST http://localhost:8001/ -H 'Content-Type: application/json' -d '{"method":"addContact","params":{"address":"<ADDRESS>"}}'`} ,
+    {label:'acceptContact', cmd:`curl -X POST http://localhost:8001/ -H 'Content-Type: application/json' -d '{"method":"acceptContact","params":{"address":"<ADDRESS>"}}'`} ,
+    {label:'myWallet', cmd:`curl http://localhost:8001/myWallet`} ,
+    {label:'sendChatMessage', cmd:`curl -X POST http://localhost:8001/ -H 'Content-Type: application/json' -d '{"method":"sendChatMessage","params":{"address":"<ADDRESS>","channel":"0","message":"Hello"}}'`} ,
+    {label:'getLastMessages', cmd:`curl -X POST http://localhost:8001/ -H 'Content-Type: application/json' -d '{"method":"getLastMessages","params":{"address":"<ADDRESS>","count":"20","channel":"0"}}'`} ,
+  ];
+
+  const grid = document.getElementById('curl-buttons');
+  grid.innerHTML = '';
+  cmds.forEach(c=>{
+    const b = document.createElement('button');
+    b.textContent = c.label;
+    b.title = c.cmd;
+    b.onclick = ()=>{ document.getElementById('curl-editor').value = c.cmd; };
+    grid.appendChild(b);
+  });
+}
+
+async function copyCurlEditor(){
+  const txt = document.getElementById('curl-editor').value;
+  try{ await navigator.clipboard.writeText(txt); alert('Copied to clipboard'); }catch(e){ alert('Copy failed — select and copy manually'); }
+}
+
+// Basic curl parser and executor (best-effort). If execution fails due to CORS/remote host, the error is shown.
+async function sendCurlEditor(){
+  const txt = document.getElementById('curl-editor').value.trim();
+  if(!txt) return alert('No command to send');
+
+  // If it's not a curl command, just show it
+  if(!txt.startsWith('curl')){
+    document.getElementById('curl-output').textContent = 'Not a curl command.' + '\n' + txt; return;
+  }
+
+  // Extract URL
+  const urlMatch = txt.match(/https?:\/\/[^'"\s\)]+|https?:\/\/[^\s]+/);
+  const url = urlMatch ? urlMatch[0] : null;
+  // Determine method
+  const method = /-X\s+([A-Z]+)/.test(txt) ? txt.match(/-X\s+([A-Z]+)/)[1] : (/(-d\s|--data|--data-raw)/.test(txt) ? 'POST' : 'GET');
+  // Extract headers
+  const headers = {};
+  const headerRe = /-H\s+'([^:]+):\s*([^']+)'/g;
+  let hmatch;
+  while((hmatch = headerRe.exec(txt))){ headers[hmatch[1].trim()] = hmatch[2].trim(); }
+  // Extract data
+  let data = null;
+  const dataRe = /(?:-d|--data|--data-raw)\s+'([^']*)'/;
+  const dmatch = txt.match(dataRe);
+  if(dmatch) data = dmatch[1];
+
+  // Execute the request via fetch
+  // Before executing state-changing commands, ask for confirmation
+  const isStateChanging = /addContact|sendChatMessage|acceptContact/i.test(txt);
+  if (isStateChanging) {
+    const confirmed = await askConfirmation('This command will modify node state. Proceed?');
+    if (!confirmed) {
+      document.getElementById('curl-output').textContent = 'Cancelled by user';
+      return;
+    }
+  }
+
+  try{
+    const opts = { method, headers };
+    if(data){
+      // try to parse JSON if content-type is json
+      if((headers['Content-Type']||headers['content-type']||'').includes('application/json')){
+        try{ opts.body = data; }catch(e){ opts.body = data; }
+      } else { opts.body = data; }
+    }
+    document.getElementById('curl-output').textContent = 'Sending...';
+    const res = await fetch(url || '/', opts);
+    const text = await res.text();
+    document.getElementById('curl-output').textContent = `HTTP ${res.status} ${res.statusText}\n\n` + text;
+  }catch(e){
+    document.getElementById('curl-output').textContent = 'Execution failed: ' + String(e) + '\n\nCommand copied to clipboard';
+    try{ await navigator.clipboard.writeText(txt); }catch(_){ /* ignore */ }
+  }
+}
+
+function askConfirmation(message){
+  return new Promise((resolve)=>{
+    const modal = document.getElementById('confirm-modal');
+    const text = document.getElementById('confirm-text');
+    const yes = document.getElementById('confirm-yes');
+    const no = document.getElementById('confirm-no');
+    text.textContent = message;
+    modal.setAttribute('aria-hidden','false');
+    function cleanup(){
+      modal.setAttribute('aria-hidden','true');
+      yes.removeEventListener('click', onYes);
+      no.removeEventListener('click', onNo);
+    }
+    function onYes(){ cleanup(); resolve(true); }
+    function onNo(){ cleanup(); resolve(false); }
+    yes.addEventListener('click', onYes);
+    no.addEventListener('click', onNo);
+  });
+}
+
+// initialize curl UI after load
+window.addEventListener('load', ()=>{ try{ initCurlCommands(); document.getElementById('curl-send').addEventListener('click', sendCurlEditor); document.getElementById('curl-copy').addEventListener('click', copyCurlEditor);}catch(e){console.warn('Curl UI init failed',e);} });

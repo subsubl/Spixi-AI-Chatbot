@@ -41,6 +41,28 @@
       <pre id="node-info">-</pre>
       <button id="refresh-status">Refresh</button>
     </section>
+
+    <section id="commands">
+      <h2>Commands</h2>
+      <div id="curl-buttons" class="button-grid"></div>
+      <div class="form-row">
+        <textarea id="curl-editor" placeholder="curl command will appear here" rows="6"></textarea>
+        <div id="confirm-modal" class="modal" aria-hidden="true">
+          <div class="modal-content">
+            <div id="confirm-text">Are you sure?</div>
+            <div style="margin-top:8px;text-align:right">
+              <button id="confirm-no">Cancel</button>
+              <button id="confirm-yes">Proceed</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="form-row">
+        <button id="curl-send">Send</button>
+        <button id="curl-copy">Copy</button>
+      </div>
+      <pre id="curl-output" class="monospace">-</pre>
+    </section>
   </main>
 
   <footer>
