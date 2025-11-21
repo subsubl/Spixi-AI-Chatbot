@@ -65,6 +65,8 @@ async function addContact() {
   const name = document.getElementById('new-name').value.trim();
   if (!addr) return alert('Address required');
   try {
+    const confirmed = await askConfirmation(`Add contact ${addr}?`);
+    if (!confirmed) return;
     const params = { address: addr };
     const r = await apiCall('addContact', params);
     if (r.error) return alert('Error: '+(r.error.message||r.error.code));
@@ -80,6 +82,8 @@ async function sendMessage() {
   if (!addr) return alert('Select recipient');
   if (!msg) return alert('Type a message');
   try {
+    const confirmed = await askConfirmation(`Send message to ${addr}?`);
+    if (!confirmed) return;
     const r = await apiCall('sendChatMessage', { address: addr, channel: channel.toString(), message: msg });
     if (r.error) return alert('Error: '+(r.error.message||r.error.code));
     document.getElementById('chat-message').value = '';
