@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build solution
+        run: dotnet build QuIXI/QuIXI.sln -c Debug
+
+      - name: Start QuIXI (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          dotnet run --project QuIXI/QuIXI/QuIXI.csproj -- --config ixian.cfg --apiport 8001 --networkType regtest &>/tmp/quixi.log &
+          echo $! > quixi.pid
+
+      - name: Start QuIXI (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: powershell
+        run: |
+          Start-Process -FilePath dotnet -ArgumentList 'run','--project','QuIXI/QuIXI/QuIXI.csproj','--','--config','ixian.cfg','--apiport','8001','--networkType','regtest' -NoNewWindow
+          Start-Sleep -Seconds 4
+
+      - name: Wait for API (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          for i in {1..30}; do
+            if curl -sSf "http://localhost:8001/" -o /dev/null; then
+              echo "API is up"; exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/quixi.log || true
+          exit 1
+
+      - name: Wait for API (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: powershell
+        run: |
+          $up = $false
+          for ($i=0; $i -lt 30; $i++) {
+            try { Invoke-WebRequest -UseBasicParsing http://localhost:8001/ -TimeoutSec 3; $up = $true; break } catch { Start-Sleep -Seconds 1 }
+          }
+          if (-not $up) { Write-Host 'API did not start' ; exit 1 }
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install test requirements
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r tests/requirements.txt
+
+      - name: Run integration tests
+        run: |
+          pytest -q tests/integration -k "not slow"

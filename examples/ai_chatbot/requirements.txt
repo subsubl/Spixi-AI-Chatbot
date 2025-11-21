@@ -1,0 +1,6 @@
+openai>=1.0.0
+paho-mqtt>=1.6.1
+requests>=2.28.0
+
+# Optional: useful for local testing
+pytest>=7.0.0

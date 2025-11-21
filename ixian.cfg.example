@@ -1,0 +1,22 @@
+; ixian.cfg.example - safe example configuration for local development
+; Copy this file to ixian.cfg and adjust as needed.
+
+; Network settings
+networkType = regtest
+; API port for the built-in HTTP API
+apiport = 8001
+
+; Message queue driver: Memory | MQTT | RabbitMQ
+mqDriver = Memory
+
+; Logging
+logLevel = INFO
+
+; User folder (if not set, defaults to ./user)
+userFolder = ./user
+
+; Disable UPnP in local env
+use_upnp = false
+
+; Keep things minimal for testing
+maxPeers = 8

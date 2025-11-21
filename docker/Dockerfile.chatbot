@@ -1,0 +1,10 @@
+FROM python:3.11-slim
+WORKDIR /app
+
+# Copy example chatbot sources from repository examples folder
+COPY examples/ai_chatbot/ai_chatbot.py ./
+COPY examples/ai_chatbot/requirements.txt ./requirements.txt
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+CMD ["python", "ai_chatbot.py"]
