@@ -6,15 +6,32 @@ Decentralized AI Chatbot using QuIXI + Local LLM
 import os
 import json
 import time
+import threading
+import logging
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from openai import OpenAI
 import paho.mqtt.client as mqtt
 
-# Configuration
-QUIXI_API = "http://localhost:8001"
-LM_STUDIO_API = "http://localhost:1234/v1"  # LM Studio local server
-MQTT_BROKER = "localhost"
-MQTT_PORT = 1883
+# Configuration (environment-overridable)
+QUIXI_API = os.getenv("QUIXI_API", "http://localhost:8001")
+LM_STUDIO_API = os.getenv("LM_STUDIO_API", "http://localhost:1234/v1")  # LM Studio local server
+MQTT_BROKER = os.getenv("MQTT_BROKER", "localhost")
+MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
+REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "10"))
+
+# Logging
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(level=getattr(logging, LOG_LEVEL, logging.INFO), format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger("ai_chatbot")
+
+# HTTP session with retries
+session = requests.Session()
+retries = Retry(total=3, backoff_factor=0.5, status_forcelist=(500, 502, 503, 504))
+adapter = HTTPAdapter(max_retries=retries)
+session.mount("http://", adapter)
+session.mount("https://", adapter)
 
 # Bot personality
 SYSTEM_PROMPT = """You are a helpful AI assistant running on a decentralized network. 
@@ -22,62 +39,59 @@ You are privacy-focused and run locally, not on cloud servers. Be friendly, conc
 and knowledgeable. You can discuss technology, answer questions, and have conversations."""
 
 # Initialize OpenAI client pointing to local LM Studio
-client = OpenAI(base_url=LM_STUDIO_API, api_key="not-needed")
+client = OpenAI(base_url=LM_STUDIO_API, api_key=os.getenv("LM_API_KEY", "not-needed"))
 
-# Conversation memory (address -> message history)
+# Conversation memory (address -> message history) with lock for thread safety
 conversation_history = {}
+history_lock = threading.Lock()
 
 def send_message(address, message):
     """Send a message back to a user via QuIXI"""
     try:
-        response = requests.get(f"{QUIXI_API}/sendChatMessage", params={
+        resp = session.get(f"{QUIXI_API}/sendChatMessage", params={
             "address": address,
             "message": message,
             "channel": 0
-        })
-        return response.status_code == 200
+        }, timeout=REQUEST_TIMEOUT)
+        return resp.status_code == 200
     except Exception as e:
-        print(f"Error sending message: {e}")
+        logger.exception("Error sending message to %s", address)
         return False
 
 def get_ai_response(user_address, user_message):
     """Get response from local LLM with conversation history"""
-    
-    # Initialize conversation history for new users
-    if user_address not in conversation_history:
-        conversation_history[user_address] = [
-            {"role": "system", "content": SYSTEM_PROMPT}
-        ]
-    
-    # Add user message to history
-    conversation_history[user_address].append({
-        "role": "user",
-        "content": user_message
-    })
-    
-    # Keep only last 10 messages to manage memory
-    if len(conversation_history[user_address]) > 21:  # 1 system + 20 messages
-        conversation_history[user_address] = [
-            conversation_history[user_address][0]  # Keep system prompt
-        ] + conversation_history[user_address][-20:]  # Keep last 20
+    # Thread-safe history update
+    with history_lock:
+        if user_address not in conversation_history:
+            conversation_history[user_address] = [
+                {"role": "system", "content": SYSTEM_PROMPT}
+            ]
+        # Add user message to history
+        conversation_history[user_address].append({
+            "role": "user",
+            "content": user_message
+        })
+        # Keep only last 20 user/assistant messages + system prompt
+        if len(conversation_history[user_address]) > 21:  # 1 system + 20 messages
+            conversation_history[user_address] = [
+                conversation_history[user_address][0]
+            ] + conversation_history[user_address][-20:]
     
     try:
         # Call local LLM
         completion = client.chat.completions.create(
-            model="local-model",  # Model name doesn't matter for LM Studio
+            model=os.getenv("LM_MODEL", "local-model"),
             messages=conversation_history[user_address],
-            temperature=0.7,
-            max_tokens=500
+            temperature=float(os.getenv("LM_TEMPERATURE", "0.7")),
+            max_tokens=int(os.getenv("LM_MAX_TOKENS", "500"))
         )
-        
         ai_response = completion.choices[0].message.content
-        
-        # Add AI response to history
-        conversation_history[user_address].append({
-            "role": "assistant",
-            "content": ai_response
-        })
-        
+        # Add AI response to history (thread-safe)
+        with history_lock:
+            conversation_history[user_address].append({
+                "role": "assistant",
+                "content": ai_response
+            })
         return ai_response
     
     except Exception as e:
@@ -89,10 +103,11 @@ def handle_command(address, message):
     cmd = message.lower().strip()
     
     if cmd == "/reset":
-        if address in conversation_history:
-            conversation_history[address] = [
-                {"role": "system", "content": SYSTEM_PROMPT}
-            ]
+        with history_lock:
+            if address in conversation_history:
+                conversation_history[address] = [
+                    {"role": "system", "content": SYSTEM_PROMPT}
+                ]
         return "🔄 Conversation reset. Let's start fresh!"
     
     elif cmd == "/help":
@@ -105,8 +120,9 @@ def handle_command(address, message):
 I'm running locally with full privacy - your messages never leave this device!"""
     
     elif cmd == "/stats":
-        msg_count = len(conversation_history.get(address, [])) - 1  # Exclude system prompt
-        total_users = len(conversation_history)
+        with history_lock:
+            msg_count = len(conversation_history.get(address, [])) - 1  # Exclude system prompt
+            total_users = len(conversation_history)
         return f"""📊 Bot Statistics:
 • Messages in this conversation: {msg_count}
 • Total users served: {total_users}
@@ -118,30 +134,25 @@ I'm running locally with full privacy - your messages never leave this device!""
 def on_connect(mqtt_client, userdata, flags, rc):
     """Callback when connected to MQTT broker"""
     if rc == 0:
-        print(f"✓ Connected to MQTT broker successfully")
+        logger.info("Connected to MQTT broker successfully")
     else:
-        print(f"❌ Connection failed with code {rc}")
+        logger.error("Connection failed with code %s", rc)
         return
-    
+
     # Subscribe to chat messages and contact requests
-    print("📡 Subscribing to MQTT topics...")
-    # Subscribe to both the exact topic and wildcard variants to be robust
+    logger.info("Subscribing to MQTT topics...")
     mqtt_client.subscribe("Chat")
     mqtt_client.subscribe("Chat/#")
     mqtt_client.subscribe("RequestAdd2")
     mqtt_client.subscribe("RequestAdd2/#")
-    # Also subscribe to all QuIXI topics so we don't miss types like FriendStatusUpdate
     mqtt_client.subscribe("#")
-    print("   ✓ Subscribed to Chat/# and RequestAdd2/# and # (all topics)")
-    
-    print("\n🤖 AI Chatbot is ready!")
-    print("Add your bot as a contact in Spixi and start chatting!")
-    print("Waiting for messages...\n")
+    logger.info("Subscribed to Chat/# and RequestAdd2/# and # (all topics)")
+
+    logger.info("AI Chatbot is ready — add a bot address as a contact in Spixi and start chatting.")
 
 def on_message(mqtt_client, userdata, msg):
     """Callback when a message is received"""
-    # Debug: Show all messages received
-    print(f"📨 MQTT message received on topic: {msg.topic}")
+    logger.debug("MQTT message received on topic: %s", msg.topic)
 
     try:
         # Parse incoming message (tolerant decoding)
@@ -151,7 +162,7 @@ def on_message(mqtt_client, userdata, msg):
         except Exception:
             payload = str(msg.payload)
 
-        print(f"📦 Payload: {payload[:200]}...")  # Show first 200 chars
+        logger.debug("Payload (first 200 chars): %s", payload[:200])
         data = None
         try:
             data = json.loads(payload)
@@ -172,9 +183,12 @@ def on_message(mqtt_client, userdata, msg):
                 sender = data.get("sender")
 
             if sender:
-                print(f"📥 Auto-accepting contact: {sender}")
-                resp = requests.get(f"{QUIXI_API}/acceptContact", params={"address": sender})
-                print(f"   Accept response: {resp.status_code}")
+                logger.info("Auto-accepting contact: %s", sender)
+                try:
+                    resp = session.get(f"{QUIXI_API}/acceptContact", params={"address": sender}, timeout=REQUEST_TIMEOUT)
+                    logger.info("Accept response: %s", resp.status_code)
+                except Exception:
+                    logger.exception("Error calling acceptContact for %s", sender)
                 time.sleep(1)  # Wait for contact to be added
                 send_message(sender, "👋 Hi! I'm your local AI assistant. Ask me anything!\n\nI run on your hardware with full privacy. Type /help for commands.")
 
@@ -200,11 +214,11 @@ def on_message(mqtt_client, userdata, msg):
                     message = payload
 
             if not sender or not message:
-                print(f"⚠️  Missing sender or message in payload (sender={sender}, message={message})")
+                logger.warning("Missing sender or message in payload (sender=%s, message=%s)", sender, str(message)[:80])
                 return
 
             message = message.strip()
-            print(f"💬 Message from {sender[:8]}...: {message}")
+            logger.info("Message from %s: %s", sender[:12], message[:160])
             
             # Check for commands first
             command_response = handle_command(sender, message)
@@ -213,63 +227,59 @@ def on_message(mqtt_client, userdata, msg):
                 return
             
             # Show typing indicator (optional)
-            print(f"🤔 Processing with AI...")
+            logger.debug("Processing with AI...")
             
             # Get AI response
             ai_response = get_ai_response(sender, message)
             
             # Send response
-            print(f"🤖 Response: {ai_response[:100]}...")
+            logger.info("Responding to %s (len=%d)", sender[:12], len(ai_response))
             send_message(sender, ai_response)
         else:
-            print(f"ℹ️  Unhandled topic: {msg.topic}")
+            logger.debug("Unhandled topic: %s", msg.topic)
     
     except json.JSONDecodeError as e:
-        print(f"❌ JSON decode error: {e}")
-        print(f"   Raw payload: {msg.payload}")
+        logger.error("JSON decode error: %s", e)
+        logger.debug("Raw payload: %s", msg.payload)
     except Exception as e:
-        print(f"❌ Error processing message: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.exception("Error processing message: %s", e)
 
 def main():
     """Main bot loop"""
-    print("🚀 Starting Decentralized AI Chatbot...")
-    print(f"📡 QuIXI API: {QUIXI_API}")
-    print(f"🧠 LM Studio: {LM_STUDIO_API}")
+    logger.info("Starting Decentralized AI Chatbot")
+    logger.info("QuIXI API: %s", QUIXI_API)
+    logger.info("LM Studio: %s", LM_STUDIO_API)
     
     # Test LM Studio connection
     try:
-        response = requests.get(f"{LM_STUDIO_API}/models")
-        print(f"✓ LM Studio connected")
-    except:
-        print(f"⚠️  Warning: Cannot connect to LM Studio. Make sure it's running!")
+        response = session.get(f"{LM_STUDIO_API}/models", timeout=REQUEST_TIMEOUT)
+        logger.info("LM Studio connected")
+    except Exception:
+        logger.error("Cannot connect to LM Studio at %s. Make sure it's running!", LM_STUDIO_API)
         return
     
     # Test QuIXI connection
     try:
-        response = requests.get(f"{QUIXI_API}/myWallet")
+        response = session.get(f"{QUIXI_API}/myWallet", timeout=REQUEST_TIMEOUT)
         if response.status_code == 200:
             wallet_map = response.json().get("result", {})
             if isinstance(wallet_map, dict) and wallet_map:
-                print("✓ QuIXI connected")
+                logger.info("QuIXI connected")
                 addresses = list(wallet_map.keys())
                 primary = addresses[0]
-                print(f"📍 Primary bot address: {primary}")
+                logger.info("Primary bot address: %s", primary)
                 if len(addresses) > 1:
-                    print(f"📍 Additional addresses ({len(addresses)-1}):")
-                    for addr in addresses[1:]:
-                        print(f"   - {addr}")
-                print("\n💰 Wallet balances:")
+                    logger.info("Additional addresses: %s", ", ".join(addresses[1:]))
+                logger.info("Wallet balances:")
                 for addr, balance in wallet_map.items():
-                    print(f"   {addr}: {balance} IXI")
-                print("\n🎯 Add one of these addresses as a contact in Spixi to start chatting!")
+                    logger.info("   %s: %s IXI", addr, balance)
+                logger.info("Add one of these addresses as a contact in Spixi to start chatting!")
             else:
-                print("⚠️  Warning: QuIXI returned empty wallet data.")
+                logger.warning("QuIXI returned empty wallet data.")
         else:
-            print(f"⚠️  Warning: QuIXI returned status {response.status_code}")
+            logger.warning("QuIXI returned status %s", response.status_code)
     except Exception as e:
-        print(f"⚠️  Warning: Cannot connect to QuIXI. Make sure it's running! ({e})")
+        logger.error("Cannot connect to QuIXI (%s). Make sure it's running!", e)
         return
     
     # Connect to MQTT broker
@@ -277,13 +287,11 @@ def main():
         # Compatible with both paho-mqtt v1.x and v2.x
         from paho.mqtt import client as mqtt_module
         if hasattr(mqtt_module, 'CallbackAPIVersion'):
-            # paho-mqtt v2.0+
             mqtt_client = mqtt.Client(mqtt_module.CallbackAPIVersion.VERSION1)
         else:
-            # paho-mqtt v1.x
             mqtt_client = mqtt.Client()
-    except:
-        # Fallback
+    except Exception:
+        logger.warning("Could not detect MQTT client version; using default client")
         mqtt_client = mqtt.Client()
     
     mqtt_client.on_connect = on_connect
@@ -300,11 +308,11 @@ def main():
     mqtt_client.on_subscribe = on_subscribe
     mqtt_client.on_log = on_log
     
-    print(f"🔌 Connecting to MQTT broker at {MQTT_BROKER}:{MQTT_PORT}...")
+    logger.info("Connecting to MQTT broker at %s:%s", MQTT_BROKER, MQTT_PORT)
     
     try:
         mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
-        print("✓ Connected to MQTT broker")
+        logger.info("Connected to MQTT broker")
         mqtt_client.loop_forever()
     except KeyboardInterrupt:
         print("\n👋 Shutting down bot...")
